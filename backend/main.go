@@ -38,7 +38,7 @@ import (
 // pluginVersion 只是兜底；运行时以包内 manifest.json 的版本为准（见 resolveMetadata）。
 const (
 	pluginID      = "com.lwai.todo"
-	pluginVersion = "0.1.8"
+	pluginVersion = "0.1.13"
 )
 
 type plugin struct {
@@ -455,19 +455,43 @@ type TodoTask struct {
 	DueAt       *string   `json:"dueAt"`
 	Done        bool      `json:"done"`
 	DoneAt      *string   `json:"doneAt"`
+	DoneNote    *string   `json:"doneNote,omitempty"` // 完成备注（看似完成但还有后续/其它内容）
 	CreatedAt   string    `json:"createdAt"`
 	UpdatedAt   string    `json:"updatedAt"`
 	Subtasks    []TodoSub `json:"subtasks"`
 }
 
+// TodoTag 是「记录」模式下的标签，用于给记录打多标签分类（记录本身不带分组）。
+type TodoTag struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"` // 十六进制颜色，如 #4f8cff
+	Order int    `json:"order"`
+}
+
+// TodoRecord 是「记录」模式下的碎片内容条目：标题 + 内容 + 日期。
+// 与任务解耦——不属于任何分组、不带优先级/状态，只在「记录」视图与日历中展示。
+// TagIDs 关联多个标签（多选分类）。
+type TodoRecord struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Content   string   `json:"content"`
+	Date      string   `json:"date"`      // YYYY-MM-DD
+	TagIDs    []string `json:"tagIds"`    // 关联标签 id 列表（多选）
+	CreatedAt string   `json:"createdAt"`
+	UpdatedAt string   `json:"updatedAt"`
+}
+
 // TodoDoc 是前端收发的整体文档（_rev 是内部并发版本号，不参与展示）。
-// 底层存储是 SQLite 关系表（groups / tasks / subtasks / meta），本结构体只是
+// 底层存储是 SQLite 关系表（groups / tasks / subtasks / records / tags / record_tags / meta），本结构体只是
 // 它们之间的「组装视图」——既保留前端熟悉的单文档协议，又方便后续直接基于表扩展。
 type TodoDoc struct {
-	Rev     int         `json:"_rev"`
-	Version int         `json:"version"`
-	Groups  []TodoGroup `json:"groups"`
-	Tasks   []TodoTask  `json:"tasks"`
+	Rev     int          `json:"_rev"`
+	Version int          `json:"version"`
+	Groups  []TodoGroup  `json:"groups"`
+	Tasks   []TodoTask   `json:"tasks"`
+	Records []TodoRecord `json:"records"`
+	Tags    []TodoTag    `json:"tags"`
 }
 
 // openDB 打开（必要时创建）SQLite 数据库并执行迁移。返回值 created 表示
@@ -558,6 +582,25 @@ func migrateDB(db *sql.DB) error {
 			is_milestone INTEGER NOT NULL DEFAULT 0,
 			ord INTEGER NOT NULL DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS records (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			content TEXT,
+			date TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS tags (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			color TEXT,
+			ord INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS record_tags (
+			record_id TEXT NOT NULL,
+			tag_id TEXT NOT NULL,
+			PRIMARY KEY(record_id, tag_id)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id)`,
 	}
@@ -565,6 +608,10 @@ func migrateDB(db *sql.DB) error {
 		if _, err := db.Exec(s); err != nil {
 			return fmt.Errorf("migrate[%d/%d]: %w", i+1, len(stmts), err)
 		}
+	}
+	// 旧库可能没有 done_note 列：幂等加列（列已存在时 SQLite 会报错，忽略即可）。
+	if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN done_note TEXT`); err != nil {
+		// 仅“duplicate column”错误可忽略，其余不在此处理（建表已成功）。
 	}
 	_, _ = db.Exec(`INSERT OR IGNORE INTO meta(key,value) VALUES('rev','0'),('version','1')`)
 	return nil
@@ -639,6 +686,24 @@ func loadDoc() (TodoDoc, bool, error) {
 	}
 	gRows.Close()
 
+	// 标签（记录分类用）：按 ord 升序。
+	tagRows, err := db.Query(`SELECT id, name, color, ord FROM tags ORDER BY ord, id`)
+	if err != nil {
+		return emptyDoc(), created, err
+	}
+	for tagRows.Next() {
+		var t TodoTag
+		var name, color sql.NullString
+		if err := tagRows.Scan(&t.ID, &name, &color, &t.Order); err != nil {
+			tagRows.Close()
+			return emptyDoc(), created, err
+		}
+		t.Name = name.String
+		t.Color = color.String
+		d.Tags = append(d.Tags, t)
+	}
+	tagRows.Close()
+
 	// 先把子任务按所属任务分组，再挂到任务上（子任务表与任务表解耦存储，方便后续扩展）。
 	subByTask := map[string][]TodoSub{}
 	sRows, err := db.Query(`SELECT id, task_id, title, done, done_at, is_milestone, ord FROM subtasks ORDER BY ord, id`)
@@ -661,16 +726,16 @@ func loadDoc() (TodoDoc, bool, error) {
 	}
 	sRows.Close()
 
-	tRows, err := db.Query(`SELECT id, group_id, title, description, priority, start_at, due_at, done, done_at, created_at, updated_at FROM tasks ORDER BY updated_at, id`)
+	tRows, err := db.Query(`SELECT id, group_id, title, description, priority, start_at, due_at, done, done_at, done_note, created_at, updated_at FROM tasks ORDER BY updated_at, id`)
 	if err != nil {
 		return emptyDoc(), created, err
 	}
 	for tRows.Next() {
 		var t TodoTask
 		var gid, desc, prio sql.NullString
-		var sa, da, dat, ca, ua sql.NullString
+		var sa, da, dat, dn, ca, ua sql.NullString
 		var done int
-		if err := tRows.Scan(&t.ID, &gid, &t.Title, &desc, &prio, &sa, &da, &done, &dat, &ca, &ua); err != nil {
+		if err := tRows.Scan(&t.ID, &gid, &t.Title, &desc, &prio, &sa, &da, &done, &dat, &dn, &ca, &ua); err != nil {
 			tRows.Close()
 			return emptyDoc(), created, err
 		}
@@ -681,6 +746,7 @@ func loadDoc() (TodoDoc, bool, error) {
 		t.DueAt = nullStrToPtr(da)
 		t.Done = done != 0
 		t.DoneAt = nullStrToPtr(dat)
+		t.DoneNote = nullStrToPtr(dn)
 		t.CreatedAt = ca.String
 		t.UpdatedAt = ua.String
 		t.Subtasks = subByTask[t.ID]
@@ -690,6 +756,52 @@ func loadDoc() (TodoDoc, bool, error) {
 		d.Tasks = append(d.Tasks, t)
 	}
 	tRows.Close()
+
+	// 记录-标签关联：先整表读出，按记录归组。
+	rtRows, err := db.Query(`SELECT record_id, tag_id FROM record_tags`)
+	if err != nil {
+		return emptyDoc(), created, err
+	}
+	recTagMap := map[string][]string{}
+	for rtRows.Next() {
+		var rid, tid string
+		if err := rtRows.Scan(&rid, &tid); err != nil {
+			rtRows.Close()
+			return emptyDoc(), created, err
+		}
+		recTagMap[rid] = append(recTagMap[rid], tid)
+	}
+	rtRows.Close()
+
+	// 记录（碎片内容）：与任务解耦，按日期倒序。
+	rRows, err := db.Query(`SELECT id, title, content, date, created_at, updated_at FROM records ORDER BY date DESC, updated_at DESC, id`)
+	if err != nil {
+		return emptyDoc(), created, err
+	}
+	for rRows.Next() {
+		var r TodoRecord
+		var content, date, ca, ua sql.NullString
+		if err := rRows.Scan(&r.ID, &r.Title, &content, &date, &ca, &ua); err != nil {
+			rRows.Close()
+			return emptyDoc(), created, err
+		}
+		r.Content = content.String
+		r.Date = date.String
+		r.CreatedAt = ca.String
+		r.UpdatedAt = ua.String
+		r.TagIDs = recTagMap[r.ID]
+		if r.TagIDs == nil {
+			r.TagIDs = []string{}
+		}
+		d.Records = append(d.Records, r)
+	}
+	rRows.Close()
+	if d.Records == nil {
+		d.Records = []TodoRecord{}
+	}
+	if d.Tags == nil {
+		d.Tags = []TodoTag{}
+	}
 
 	return d, created, nil
 }
@@ -724,6 +836,18 @@ func saveDocToDB(d TodoDoc) (int, error) {
 		tx.Rollback()
 		return 0, err
 	}
+	if _, err := tx.Exec(`DELETE FROM records`); err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM tags`); err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM record_tags`); err != nil {
+		tx.Rollback()
+		return 0, err
+	}
 
 	gStmt, err := tx.Prepare(`INSERT INTO groups(id, name, ord) VALUES(?, ?, ?)`)
 	if err != nil {
@@ -738,7 +862,24 @@ func saveDocToDB(d TodoDoc) (int, error) {
 		}
 	}
 
-	tStmt, err := tx.Prepare(`INSERT INTO tasks(id, group_id, title, description, priority, start_at, due_at, done, done_at, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	tagStmt, err := tx.Prepare(`INSERT INTO tags(id, name, color, ord) VALUES(?, ?, ?, ?)`)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer tagStmt.Close()
+	for _, tg := range d.Tags {
+		if _, err := tagStmt.Exec(tg.ID, tg.Name, nullStr(tg.Color), tg.Order); err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+	}
+	validTag := map[string]bool{}
+	for _, tg := range d.Tags {
+		validTag[tg.ID] = true
+	}
+
+	tStmt, err := tx.Prepare(`INSERT INTO tasks(id, group_id, title, description, priority, start_at, due_at, done, done_at, done_note, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		tx.Rollback()
 		return 0, err
@@ -747,11 +888,39 @@ func saveDocToDB(d TodoDoc) (int, error) {
 	for _, t := range d.Tasks {
 		if _, err := tStmt.Exec(
 			t.ID, nullStr(t.GroupID), t.Title, nullStr(t.Description), nullStr(t.Priority),
-			ns(t.StartAt), ns(t.DueAt), boolInt(t.Done), ns(t.DoneAt),
+			ns(t.StartAt), ns(t.DueAt), boolInt(t.Done), ns(t.DoneAt), ns(t.DoneNote),
 			nullStr(t.CreatedAt), nullStr(t.UpdatedAt),
 		); err != nil {
 			tx.Rollback()
 			return 0, err
+		}
+	}
+
+	rStmt, err := tx.Prepare(`INSERT INTO records(id, title, content, date, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer rStmt.Close()
+	rtStmt, err := tx.Prepare(`INSERT INTO record_tags(record_id, tag_id) VALUES(?, ?)`)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer rtStmt.Close()
+	for _, r := range d.Records {
+		if _, err := rStmt.Exec(r.ID, r.Title, nullStr(r.Content), nullStr(r.Date), nullStr(r.CreatedAt), nullStr(r.UpdatedAt)); err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+		for _, tid := range r.TagIDs {
+			if !validTag[tid] {
+				continue
+			}
+			if _, err := rtStmt.Exec(r.ID, tid); err != nil {
+				tx.Rollback()
+				return 0, err
+			}
 		}
 	}
 
@@ -807,11 +976,15 @@ func todosLoad() (any, *dbxpluginsdk.PluginError) {
 		"version": d.Version,
 		"groups":  d.Groups,
 		"tasks":   d.Tasks,
+		"records": d.Records,
+		"tags":    d.Tags,
 	}
 	// 首次运行（数据库刚创建）给前端一个空壳，让它去 seed 一个默认分组。
 	if created {
 		doc["groups"] = []TodoGroup{}
 		doc["tasks"] = []TodoTask{}
+		doc["records"] = []TodoRecord{}
+		doc["tags"] = []TodoTag{}
 	}
 	return map[string]any{
 		"data":       doc,
@@ -853,6 +1026,12 @@ func todosSave(incomingRevRaw json.RawMessage, dataRaw json.RawMessage) (any, *d
 	}
 	if incoming.Tasks == nil {
 		incoming.Tasks = []TodoTask{}
+	}
+	if incoming.Records == nil {
+		incoming.Records = []TodoRecord{}
+	}
+	if incoming.Tags == nil {
+		incoming.Tags = []TodoTag{}
 	}
 	// 基本校验：任务归属已知分组（缺失分组时归到第一个）。
 	groupIDs := map[string]bool{}
@@ -912,9 +1091,17 @@ func todosImport(dataBase64 string) (any, *dbxpluginsdk.PluginError) {
 	if d.Tasks == nil {
 		d.Tasks = []TodoTask{}
 	}
+	if d.Tags == nil {
+		d.Tags = []TodoTag{}
+	}
 	for i := range d.Tasks {
 		if d.Tasks[i].Subtasks == nil {
 			d.Tasks[i].Subtasks = []TodoSub{}
+		}
+	}
+	for i := range d.Records {
+		if d.Records[i].TagIDs == nil {
+			d.Records[i].TagIDs = []string{}
 		}
 	}
 	// 导入 = 整体替换文档（语义同「恢复」）。saveDocToDB 会在当前 rev 基础上递增，

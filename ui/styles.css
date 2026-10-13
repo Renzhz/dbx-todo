@@ -376,3 +376,56 @@ button { font-family: inherit; }
 .board-col.collapsed .board-col-head { flex-direction: column; align-items: center; gap: 8px; padding: 8px 4px; }
 .board-col.collapsed .board-col-title { writing-mode: vertical-rl; text-orientation: mixed; }
 .board-col.collapsed .board-col-count { margin-left: 0; }
+
+/* ===== 完成备注 ===== */
+.task-donenote { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); background: var(--panel-2); border-radius: 6px; padding: 6px 8px; margin-top: 6px; }
+.task-donenote .dn-label { color: var(--primary); font-weight: 600; flex: none; }
+.task-donenote .dn-text { white-space: pre-wrap; word-break: break-word; }
+.bc-donenote { font-size: 11px; color: var(--text-2); background: var(--panel-2); border-radius: 6px; padding: 4px 8px; margin-top: 4px; }
+
+/* ===== 记录视图 ===== */
+.rec-toolbar { display: flex; align-items: center; padding: 14px 16px 6px; }
+.records-content { display: flex; flex-direction: column; gap: 10px; padding: 6px 16px 20px; }
+.rec-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.rec-head { display: flex; align-items: baseline; gap: 10px; }
+.rec-date { font-size: 12px; color: var(--text-3); flex: none; font-variant-numeric: tabular-nums; }
+.rec-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.rec-content { margin-top: 6px; font-size: 13px; color: var(--text-2); white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; }
+.rec-actions { display: flex; gap: 10px; margin-top: 10px; }
+.rec-actions button { border: 0; background: transparent; color: var(--text-2); cursor: pointer; font-size: 12px; padding: 2px 0; }
+.rec-actions button:hover { color: var(--primary); }
+.rec-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rec-tag { font-size: 11px; line-height: 1.6; padding: 1px 8px; border-radius: 999px; border: 1px solid; }
+
+/* ===== 记录视图：左侧标签筛选面板（替换分组栏） ===== */
+#tag-section:not([hidden]) { display: block; }
+.tag-filter { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; overflow-y: auto; }
+.tag-empty { font-size: 12px; color: var(--text-3); padding: 8px 6px; }
+.tag-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text-2); border: 1px solid transparent; }
+.tag-item:hover { background: var(--panel-2); }
+.tag-item.active { background: var(--primary-weak); color: var(--primary); border-color: var(--primary); }
+.tag-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.tag-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-count { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.tag-del { border: 0; background: transparent; color: var(--text-3); cursor: pointer; font-size: 12px; padding: 0 2px; line-height: 1; flex: none; opacity: 0; }
+.tag-item:hover .tag-del { opacity: 1; }
+.tag-del:hover { color: var(--danger, #ef4444); }
+
+/* ===== 记录弹框：标签多选 picker ===== */
+.tag-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tag-pick-empty { font-size: 12px; color: var(--text-3); }
+.tag-chip { border: 1px solid var(--border); background: var(--panel); color: var(--text-2); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; line-height: 1.5; }
+.tag-chip:hover { border-color: var(--primary); color: var(--primary); }
+.tag-chip.on { font-weight: 600; }
+.tag-new { border-style: dashed; color: var(--text-3); }
+
+/* ===== 日历：记录 chip + 查看全部弹框中的记录分区 ===== */
+.cal-chip.rec { background: var(--panel-2); color: var(--text-2); }
+.cal-chip.rec .rec-dot { background: var(--rec, #8a6df0); }
+.dot.rec-dot { background: var(--rec, #8a6df0); }
+.day-modal-sec-title { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; margin: 4px 2px 0; }
+.day-modal-row.rec .dm-title { color: var(--text); }
+.rec-badge { background: var(--rec, #8a6df0); color: #fff; }
+
+/* 完成备注弹框内的「任务：xxx」标题 */
+.rec-for { font-size: 13px; color: var(--text-2); margin-bottom: 8px; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; }

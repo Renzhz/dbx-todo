@@ -34,6 +34,7 @@
         <button id="btn-view-list" class="vt-btn active" type="button" role="tab" aria-selected="true">列表</button>
         <button id="btn-view-calendar" class="vt-btn" type="button" role="tab" aria-selected="false">日历</button>
         <button id="btn-view-board" class="vt-btn" type="button" role="tab" aria-selected="false">执行</button>
+        <button id="btn-view-record" class="vt-btn" type="button" role="tab" aria-selected="false">记录</button>
       </div>
 
       <div class="topbar-actions">
@@ -52,12 +53,21 @@
     <!-- 主体：左侧分组树 + 右侧视图 -->
     <div id="body">
       <aside id="sidebar">
-        <div class="sidebar-head">
-          <span class="sidebar-title">分组</span>
-          <button id="btn-add-group-mini" class="icon-btn" type="button" title="新建分组">+</button>
+        <div id="group-section">
+          <div class="sidebar-head">
+            <span class="sidebar-title">分组</span>
+            <button id="btn-add-group-mini" class="icon-btn" type="button" title="新建分组">+</button>
+          </div>
+          <nav id="group-tree" class="group-tree" aria-label="任务分组"></nav>
+          <div id="sidebar-empty" class="sidebar-empty" hidden>还没有分组，点上方 + 创建。</div>
         </div>
-        <nav id="group-tree" class="group-tree" aria-label="任务分组"></nav>
-        <div id="sidebar-empty" class="sidebar-empty" hidden>还没有分组，点上方 + 创建。</div>
+        <div id="tag-section" hidden>
+          <div class="sidebar-head">
+            <span class="sidebar-title">标签</span>
+            <button id="btn-add-tag-mini" class="icon-btn" type="button" title="新建标签">+</button>
+          </div>
+          <div id="tag-filter" class="tag-filter"></div>
+        </div>
       </aside>
 
       <main id="main">
@@ -104,6 +114,14 @@
         <!-- 执行视图（看板） -->
         <section id="main-board" class="view" hidden>
           <div id="board-content" class="board-content"></div>
+        </section>
+
+        <!-- 记录视图（碎片内容） -->
+        <section id="main-records" class="view" hidden>
+          <div class="rec-toolbar">
+            <button id="btn-add-record" class="primary" type="button">+ 新建记录</button>
+          </div>
+          <div id="records-content" class="records-content"></div>
         </section>
       </main>
     </div>
@@ -164,6 +182,11 @@
               <button id="btn-add-sub" class="ghost sm" type="button">+ 添加子任务</button>
             </div>
             <div id="f-subtasks" class="subtasks"></div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">完成备注</span>
+            <textarea id="f-donenote" class="textarea" rows="2" maxlength="2000" placeholder="完成时补充：还有哪些后续 / 其它内容（可选）"></textarea>
           </div>
 
           <div class="modal-foot">
