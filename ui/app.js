@@ -854,17 +854,40 @@
 
   function closeModal() { var m = $("task-modal"); if (m) m.hidden = true; editingId = null; modalSubs = []; }
 
+  function moveSub(idx, dir) {
+    var j = idx + dir;
+    if (j < 0 || j >= modalSubs.length) return;
+    var tmp = modalSubs[idx]; modalSubs[idx] = modalSubs[j]; modalSubs[j] = tmp;
+    renderSubtaskEdits();
+  }
+
+  function autoGrow(ta) {
+    if (!ta) return;
+    ta.style.height = "auto";
+    var max = 200, hgt = ta.scrollHeight;
+    ta.style.height = (hgt > max ? max : hgt) + "px";
+    ta.style.overflowY = hgt > max ? "auto" : "hidden";
+  }
+
   function renderSubtaskEdits() {
     var box = $("f-subtasks"); if (!box) return;
     box.innerHTML = "";
     modalSubs.forEach(function (s, idx) {
+      var up = h("button", { type: "button", class: "st-move", title: "上移", onClick: function () { moveSub(idx, -1); } }, "↑");
+      var dn = h("button", { type: "button", class: "st-move", title: "下移", onClick: function () { moveSub(idx, 1); } }, "↓");
+      if (idx === 0) up.disabled = true;
+      if (idx === modalSubs.length - 1) dn.disabled = true;
+      var ta = h("textarea", { class: "input st-text", rows: "1", placeholder: "子任务内容", dataset: { sti: idx }, onInput: function (ev) { modalSubs[idx].title = ev.target.value; autoGrow(ev.target); } });
+      ta.value = s.title || "";
       var row = h("div", { class: "subtask-edit" }, [
         h("input", { class: "st-check", type: "checkbox", checked: !!s.done, dataset: { sd: idx }, onChange: function (ev) { modalSubs[idx].done = ev.target.checked; } }),
-        h("input", { type: "text", class: "input", value: s.title, placeholder: "子任务内容", dataset: { sti: idx }, onInput: function (ev) { modalSubs[idx].title = ev.target.value; } }),
+        ta,
+        h("div", { class: "st-moves" }, [up, dn]),
         h("button", { type: "button", class: "ms-toggle" + (s.isMilestone ? " on" : ""), dataset: { sm: idx }, onClick: function () { modalSubs[idx].isMilestone = !modalSubs[idx].isMilestone; renderSubtaskEdits(); } }, s.isMilestone ? "★ 里程碑" : "设为里程碑"),
         h("button", { type: "button", class: "del-sub", dataset: { sx: idx }, onClick: function () { modalSubs.splice(idx, 1); renderSubtaskEdits(); } }, "✕")
       ]);
       box.appendChild(row);
+      autoGrow(ta);
     });
   }
 
@@ -872,8 +895,8 @@
     if (!Store) { toast("存储模块未就绪，保存失败"); return; }
     var title = val("f-title").trim();
     if (!title) { toast("请填写标题"); return; }
-    var subs = modalSubs.filter(function (s) { return (s.title || "").trim(); }).map(function (s) {
-      return { id: s.id || uid("s"), title: s.title.trim(), done: !!s.done, doneAt: s.doneAt || null, isMilestone: !!s.isMilestone, order: s.order || 0 };
+    var subs = modalSubs.filter(function (s) { return (s.title || "").trim(); }).map(function (s, i) {
+      return { id: s.id || uid("s"), title: s.title.trim(), done: !!s.done, doneAt: s.doneAt || null, isMilestone: !!s.isMilestone, order: i };
     });
     var groupId = val("f-group") || (state.groups[0] && state.groups[0].id) || "";
     var startV = val("f-start"), dueV = val("f-due");

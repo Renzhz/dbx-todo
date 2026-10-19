@@ -38,7 +38,7 @@ import (
 // pluginVersion 只是兜底；运行时以包内 manifest.json 的版本为准（见 resolveMetadata）。
 const (
 	pluginID      = "com.lwai.todo"
-	pluginVersion = "0.1.13"
+	pluginVersion = "0.1.15"
 )
 
 type plugin struct {
@@ -476,8 +476,8 @@ type TodoRecord struct {
 	ID        string   `json:"id"`
 	Title     string   `json:"title"`
 	Content   string   `json:"content"`
-	Date      string   `json:"date"`      // YYYY-MM-DD
-	TagIDs    []string `json:"tagIds"`    // 关联标签 id 列表（多选）
+	Date      string   `json:"date"`   // YYYY-MM-DD
+	TagIDs    []string `json:"tagIds"` // 关联标签 id 列表（多选）
 	CreatedAt string   `json:"createdAt"`
 	UpdatedAt string   `json:"updatedAt"`
 }

@@ -51,6 +51,29 @@ for (const t of list) {
 const mani = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
 const ver = mani.version;
 
+// ---- 0) 归档旧包：构建前把 dist/ 顶层（非 dist/old/）的旧版本 .dbxp / .artifact.json 移入 dist/old/ ----
+// 只搬版本号 != 当前 ver 的（当前版本将被下方重新生成覆盖）；release-candidates.json 无版本号，排除。
+// 同盘 rename 原子、不删文件（旧包保留可追溯）。
+const PKG_RE = /^com\.lwai\.todo-(.+)-(windows|darwin|linux)-(x64|arm64)(\.artifact\.json|\.dbxp)$/;
+function archiveOldPackages() {
+  const distDir = path.join(ROOT, "dist");
+  const oldDir = path.join(distDir, "old");
+  if (!fs.existsSync(distDir)) return;
+  if (!fs.existsSync(oldDir)) fs.mkdirSync(oldDir, { recursive: true });
+  let moved = 0;
+  for (const e of fs.readdirSync(distDir)) {
+    const full = path.join(distDir, e);
+    if (!fs.statSync(full).isFile()) continue;          // 跳过 dist/old 目录本身
+    if (e === "release-candidates.json") continue;       // 无版本号，排除（避免被反复搬运）
+    const m = e.match(PKG_RE);
+    if (!m) continue;
+    if (m[1] === ver) continue;                          // 当前版本不搬，将被重新生成
+    fs.renameSync(full, path.join(oldDir, e));           // 同盘原子移动
+    moved++;
+  }
+  if (moved) console.log(`[archive] 已归档 ${moved} 个旧包到 dist/old/`);
+}
+
 // 用**异步** spawn（见 _testutil.mjs）：本机沙箱里 spawnSync 对任何 exe 都直接 EBUSY。
 async function run(cmd, args, opts = {}) {
   const r = await runProcess(cmd, args, { cwd: ROOT, env: opts.env || process.env, timeoutMs: 600000 });
@@ -68,6 +91,9 @@ async function run(cmd, args, opts = {}) {
 }
 
 console.log(`=== 构建 ${list.length} 个平台：${list.join(", ")} ===\n`);
+
+// 先归档旧包（当前版本会被重新生成）
+archiveOldPackages();
 
 // ---- 1) 交叉编译侧车 ----
 for (const t of list) {

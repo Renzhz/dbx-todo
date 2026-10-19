@@ -319,8 +319,12 @@ button { font-family: inherit; }
 .select { height: 34px; padding: 0 10px; line-height: 34px; cursor: pointer; }
 .textarea { resize: vertical; }
 .subtasks { display: flex; flex-direction: column; gap: 6px; }
-.subtask-edit { display: flex; align-items: center; gap: 8px; }
-.subtask-edit input[type="text"] { flex: 1; }
+.subtask-edit { display: flex; align-items: flex-start; gap: 6px; }
+.subtask-edit .st-moves { display: flex; flex-direction: row; gap: 2px; flex: none; align-self: center; }
+.subtask-edit .st-move { font-size: 11px; line-height: 1; width: 20px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); color: var(--text-2); cursor: pointer; }
+.subtask-edit .st-move:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); }
+.subtask-edit .st-move:disabled { opacity: .35; cursor: default; }
+.subtask-edit .st-text { flex: 1; resize: none; overflow-y: hidden; line-height: 1.45; min-height: 34px; display: block; }
 .subtask-edit .ms-toggle { font-size: 11px; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; background: var(--panel-2); color: var(--text-2); cursor: pointer; white-space: nowrap; }
 .subtask-edit .ms-toggle.on { color: var(--warn); border-color: var(--warn); }
 .subtask-edit .del-sub { border: 0; background: transparent; color: var(--text-3); cursor: pointer; font-size: 14px; }
