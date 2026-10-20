@@ -9,7 +9,7 @@
 //     ⚠️ 交叉编译的是**字节正确**，不等于**在目标机上验证过** —— 真机冒烟仍需各平台跑一次。
 //
 // 用法：
-//   node _release.mjs                                  # windows-x64 + darwin-arm64 + linux-x64
+//   node _release.mjs                                  # windows-x64 + darwin-arm64 + darwin-x64 + linux-x64 + linux-arm64
 //   node _release.mjs windows-x64 linux-x64            # 只做指定平台
 //
 // 产物：
@@ -37,7 +37,7 @@ const TRIPLES = {
   "linux-x64": ["linux", "amd64"],
   "linux-arm64": ["linux", "arm64"],
 };
-const DEFAULT_TARGETS = ["windows-x64", "darwin-arm64", "linux-x64"];
+const DEFAULT_TARGETS = ["windows-x64", "darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"];
 const targets = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const list = (targets.length ? targets : DEFAULT_TARGETS).slice().sort();
 

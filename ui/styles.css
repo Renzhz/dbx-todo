@@ -151,6 +151,8 @@ button { font-family: inherit; }
 .group-item:hover .group-actions { display: flex; }
 .group-actions button { border: 0; background: transparent; color: var(--text-3); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; }
 .group-actions button:hover { background: var(--panel); color: var(--text); }
+.group-toggle { cursor: pointer; }
+.group-chevron-static { opacity: .35; cursor: default; }
 
 #main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }

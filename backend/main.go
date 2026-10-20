@@ -38,7 +38,7 @@ import (
 // pluginVersion 只是兜底；运行时以包内 manifest.json 的版本为准（见 resolveMetadata）。
 const (
 	pluginID      = "com.lwai.todo"
-	pluginVersion = "0.1.15"
+	pluginVersion = "0.1.17"
 )
 
 type plugin struct {
@@ -427,11 +427,12 @@ func connDirFromValues(values map[string]any) string {
 
 // ---------------- 文档（分组 / 任务 / 子任务） ----------------
 
-// TodoGroup 是分组。
+// TodoGroup 是分组（文件夹）。ParentID 为空串表示顶层分组；非空表示父文件夹 id，支持多层级。
 type TodoGroup struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Order int    `json:"order"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Order    int    `json:"order"`
+	ParentID string `json:"parentId"`
 }
 
 // TodoSub 是子任务 / 里程碑节点。
@@ -613,6 +614,9 @@ func migrateDB(db *sql.DB) error {
 	if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN done_note TEXT`); err != nil {
 		// 仅“duplicate column”错误可忽略，其余不在此处理（建表已成功）。
 	}
+	// 旧库分组是单层：幂等加 parent_id 列（多层级文件夹），列已存在时忽略。
+	if _, err := db.Exec(`ALTER TABLE groups ADD COLUMN parent_id TEXT`); err != nil {
+	}
 	_, _ = db.Exec(`INSERT OR IGNORE INTO meta(key,value) VALUES('rev','0'),('version','1')`)
 	return nil
 }
@@ -672,16 +676,18 @@ func loadDoc() (TodoDoc, bool, error) {
 		d.Version = 1
 	}
 
-	gRows, err := db.Query(`SELECT id, name, ord FROM groups ORDER BY ord, id`)
+	gRows, err := db.Query(`SELECT id, name, ord, parent_id FROM groups ORDER BY ord, id`)
 	if err != nil {
 		return emptyDoc(), created, err
 	}
 	for gRows.Next() {
 		var g TodoGroup
-		if err := gRows.Scan(&g.ID, &g.Name, &g.Order); err != nil {
+		var pid sql.NullString
+		if err := gRows.Scan(&g.ID, &g.Name, &g.Order, &pid); err != nil {
 			gRows.Close()
 			return emptyDoc(), created, err
 		}
+		g.ParentID = pid.String
 		d.Groups = append(d.Groups, g)
 	}
 	gRows.Close()
@@ -849,14 +855,14 @@ func saveDocToDB(d TodoDoc) (int, error) {
 		return 0, err
 	}
 
-	gStmt, err := tx.Prepare(`INSERT INTO groups(id, name, ord) VALUES(?, ?, ?)`)
+	gStmt, err := tx.Prepare(`INSERT INTO groups(id, name, ord, parent_id) VALUES(?, ?, ?, ?)`)
 	if err != nil {
 		tx.Rollback()
 		return 0, err
 	}
 	defer gStmt.Close()
 	for _, g := range d.Groups {
-		if _, err := gStmt.Exec(g.ID, g.Name, g.Order); err != nil {
+		if _, err := gStmt.Exec(g.ID, g.Name, g.Order, nullStr(g.ParentID)); err != nil {
 			tx.Rollback()
 			return 0, err
 		}

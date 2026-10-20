@@ -107,7 +107,7 @@
     ui: {
       view: "list", search: "", status: "all", priority: "all", sort: "created", group: null,
       collapsed: {}, openTasks: {}, boardCollapsed: {}, boardOpen: {}, calYear: 0, calMonth: 0,
-      recordTagFilter: []
+      groupExpanded: {}, recordTagFilter: []
     }
   };
   var calByDay = {};   // 日历：dayKey -> { tasks:[...], records:[...] }（供「查看全部」弹框读取）
@@ -122,6 +122,39 @@
   }
   function findTask(id) { for (var i = 0; i < state.tasks.length; i++) { if (state.tasks[i].id === id) return state.tasks[i]; } return null; }
   function findGroup(id) { for (var i = 0; i < state.groups.length; i++) { if (state.groups[i].id === id) return state.groups[i]; } return null; }
+
+  // ---- 分组树辅助（多层级文件夹） ----
+  function childGroups(parentId) {
+    return state.groups.filter(function (g) { return (g.parentId || "") === parentId; })
+      .sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+  }
+  function rootGroups() { return childGroups(""); }
+  function descendantGroupIds(id) {
+    var out = {}; out[id] = true;
+    var stack = [id];
+    while (stack.length) {
+      var cur = stack.pop();
+      childGroups(cur).forEach(function (c) { if (!out[c.id]) { out[c.id] = true; stack.push(c.id); } });
+    }
+    return out;
+  }
+  function groupIsEmpty(gid) {
+    var hasTasks = state.tasks.some(function (t) { return t.groupId === gid; });
+    var hasKids = state.groups.some(function (g) { return (g.parentId || "") === gid; });
+    return !hasTasks && !hasKids;
+  }
+  function groupTotalCount(gid) {
+    var ids = descendantGroupIds(gid);
+    var n = 0;
+    for (var i = 0; i < state.tasks.length; i++) { if (ids[state.tasks[i].groupId]) n++; }
+    return n;
+  }
+  function normalizeGroups() {
+    state.groups.forEach(function (g) {
+      if (g.parentId === undefined || g.parentId === null) g.parentId = "";
+      if (g.order === undefined || g.order === null) g.order = 0;
+    });
+  }
 
   /* ============ 状态 / 进度计算 ============ */
   var STATUS_LABEL = { notstarted: "未开始", doing: "进行中", overdue: "已逾期", done: "已完成" };
@@ -181,46 +214,53 @@
     el.textContent = "存储：" + backend + dir + (s.rev ? " · rev " + s.rev : "");
   }
 
-  /* ============ 侧边栏：分组树 ============ */
+  /* ============ 侧边栏：分组树（多层级文件夹） ============ */
   function renderSidebar() {
     var tree = $("group-tree"); if (!tree) return;
     tree.innerHTML = "";
-    var allCount = state.tasks.length;
     var allItem = h("div", {
       class: "group-item" + (state.ui.group == null ? " active" : ""),
       dataset: { group: "__all__" },
       onClick: function () { state.ui.group = null; render(); }
     }, [
-      h("span", { class: "group-chevron" }, "▾"),
+      h("span", { class: "group-chevron group-chevron-static" }, ""),
       h("span", { class: "group-name" }, "全部任务"),
-      h("span", { class: "group-count" }, String(allCount))
+      h("span", { class: "group-count" }, String(state.tasks.length))
     ]);
     tree.appendChild(allItem);
-
-    var sorted = state.groups.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
-    sorted.forEach(function (g) {
-      var count = state.tasks.filter(function (t) { return t.groupId === g.id; }).length;
-      var item = h("div", {
-        class: "group-item" + (state.ui.group === g.id ? " active" : ""),
-        dataset: { group: g.id },
-        onClick: function (ev) {
-          if (ev.target && ev.target.closest && ev.target.closest(".group-actions")) return;
-          state.ui.group = (state.ui.group === g.id) ? null : g.id;
-          render();
-        }
-      }, [
-        h("span", { class: "group-chevron" }, "▾"),
-        h("span", { class: "group-name", dataset: { rename: g.id } }, g.name),
-        h("span", { class: "group-count" }, String(count)),
-        h("span", { class: "group-actions" }, [
-          h("button", { type: "button", title: "重命名", dataset: { act: "rename", gid: g.id }, onClick: function (ev) { ev.stopPropagation(); startRename(g.id); } }, "✎"),
-          h("button", { type: "button", title: "删除", dataset: { act: "del", gid: g.id }, onClick: function (ev) { ev.stopPropagation(); deleteGroup(g.id); } }, "🗑")
-        ])
-      ]);
-      tree.appendChild(item);
-    });
+    rootGroups().forEach(function (g) { renderGroupNode(tree, g, 0); });
     var empty = $("sidebar-empty");
     if (empty) empty.hidden = state.groups.length > 0;
+  }
+
+  function renderGroupNode(tree, g, depth) {
+    var kids = childGroups(g.id);
+    var hasKids = kids.length > 0;
+    var expanded = state.ui.groupExpanded[g.id] !== false; // 默认展开
+    var item = h("div", {
+      class: "group-item" + (state.ui.group === g.id ? " active" : ""),
+      style: "padding-left:" + (8 + depth * 16) + "px",
+      dataset: { group: g.id },
+      onClick: function (ev) {
+        if (ev.target && ev.target.closest && ev.target.closest(".group-actions")) return;
+        if (ev.target && ev.target.closest && ev.target.closest(".group-toggle")) return;
+        state.ui.group = (state.ui.group === g.id) ? null : g.id;
+        render();
+      }
+    }, [
+      hasKids
+        ? h("span", { class: "group-chevron group-toggle", onClick: function (ev) { ev.stopPropagation(); state.ui.groupExpanded[g.id] = !expanded; renderSidebar(); } }, expanded ? "▾" : "▸")
+        : h("span", { class: "group-chevron group-chevron-static" }, "·"),
+      h("span", { class: "group-name", dataset: { rename: g.id } }, g.name),
+      h("span", { class: "group-count" }, String(groupTotalCount(g.id))),
+      h("span", { class: "group-actions" }, [
+        h("button", { type: "button", title: "新建子文件夹", dataset: { act: "add", gid: g.id }, onClick: function (ev) { ev.stopPropagation(); addGroup(g.id); } }, "＋"),
+        h("button", { type: "button", title: "重命名", dataset: { act: "rename", gid: g.id }, onClick: function (ev) { ev.stopPropagation(); startRename(g.id); } }, "✎"),
+        h("button", { type: "button", title: "删除", dataset: { act: "del", gid: g.id }, onClick: function (ev) { ev.stopPropagation(); deleteGroup(g.id); } }, "🗑")
+      ])
+    ]);
+    tree.appendChild(item);
+    if (hasKids && expanded) kids.forEach(function (c) { renderGroupNode(tree, c, depth + 1); });
   }
 
   /* ============ 侧边栏：记录标签筛选 ============ */
@@ -299,8 +339,9 @@
   /* ============ 列表视图 ============ */
   function baseFiltered() {
     var q = state.ui.search.trim().toLowerCase();
+    var gset = state.ui.group ? descendantGroupIds(state.ui.group) : null;
     return state.tasks.filter(function (t) {
-      if (state.ui.group && t.groupId !== state.ui.group) return false;
+      if (gset && !gset[t.groupId]) return false;
       if (state.ui.priority !== "all" && t.priority !== state.ui.priority) return false;
       if (q) {
         var hay = (t.title + " " + (t.description || "")).toLowerCase();
@@ -353,23 +394,31 @@
       return;
     }
 
-    var byGroup = {};
-    list.forEach(function (t) { (byGroup[t.groupId] = byGroup[t.groupId] || []).push(t); });
-    var groupOrder = state.groups.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+    if (state.ui.group) {
+      var sg = findGroup(state.ui.group);
+      if (sg) root.appendChild(renderListSection(sg, 0, now, list));
+    } else {
+      rootGroups().forEach(function (g) {
+        if (groupTotalCount(g.id) === 0) return; // 整棵子树无任务则跳过该根
+        root.appendChild(renderListSection(g, 0, now, list));
+      });
+    }
+  }
 
-    groupOrder.forEach(function (g) {
-      var items = byGroup[g.id];
-      if (!items || items.length === 0) return;
-      var collapsed = !!state.ui.collapsed[g.id];
-      var head = h("div", { class: "group-section-head", dataset: { gid: g.id }, onClick: function () { state.ui.collapsed[g.id] = !collapsed; renderList(); } }, [
-        h("span", { class: "group-chevron", style: collapsed ? "transform:rotate(-90deg)" : "" }, "▾"),
-        h("span", { class: "gs-title" }, g.name),
-        h("span", { class: "gs-count" }, items.length + " 项")
-      ]);
-      var section = h("div", { class: "group-section" + (collapsed ? " collapsed" : "") }, [head]);
+  function renderListSection(g, depth, now, list) {
+    var items = list.filter(function (t) { return t.groupId === g.id; });
+    var collapsed = !!state.ui.collapsed[g.id];
+    var head = h("div", { class: "group-section-head", style: "padding-left:" + (8 + depth * 14) + "px", dataset: { gid: g.id }, onClick: function () { state.ui.collapsed[g.id] = !collapsed; renderList(); } }, [
+      h("span", { class: "group-chevron", style: collapsed ? "transform:rotate(-90deg)" : "" }, "▾"),
+      h("span", { class: "gs-title" }, g.name),
+      h("span", { class: "gs-count" }, items.length + " 项")
+    ]);
+    var section = h("div", { class: "group-section" + (collapsed ? " collapsed" : "") }, [head]);
+    if (!collapsed) {
       items.forEach(function (t) { section.appendChild(taskCard(t, now)); });
-      root.appendChild(section);
-    });
+      childGroups(g.id).forEach(function (c) { section.appendChild(renderListSection(c, depth + 1, now, list)); });
+    }
+    return section;
   }
 
   function taskCard(t, now) {
@@ -826,10 +875,15 @@
   function fillGroupSelect(selectedId) {
     var sel = $("f-group"); if (!sel) return;
     sel.innerHTML = "";
-    var sorted = state.groups.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
-    sorted.forEach(function (g) {
-      sel.appendChild(h("option", { value: g.id, selected: g.id === selectedId }, g.name));
-    });
+    function addOptions(list, depth) {
+      list.forEach(function (g) {
+        var pad = depth > 0 ? new Array(depth + 1).join("　") : "";
+        sel.appendChild(h("option", { value: g.id, selected: g.id === selectedId }, pad + g.name));
+        var kids = childGroups(g.id);
+        if (kids.length) addOptions(kids, depth + 1);
+      });
+    }
+    addOptions(rootGroups(), 0);
   }
 
   function openTaskModal(id, prefill) {
@@ -984,11 +1038,14 @@
   }
 
   /* ============ 分组操作 ============ */
-  function addGroup() {
-    promptDialog("新建分组", "请输入分组名称：", "默认分组", "创建", function (name) {
+  function addGroup(parentId) {
+    var isChild = !!parentId;
+    promptDialog(isChild ? "新建子文件夹" : "新建分组", isChild ? "请输入子文件夹名称：" : "请输入分组名称：", isChild ? "新子文件夹" : "默认分组", "创建", function (name) {
       name = (name || "").trim();
       if (!name) return;
-      state.groups.push({ id: uid("g"), name: name, order: state.groups.length });
+      var order = childGroups(parentId || "").length;
+      state.groups.push({ id: uid("g"), name: name, order: order, parentId: parentId || "" });
+      if (isChild) state.ui.groupExpanded[parentId] = true;
       saveAll();
       render();
     });
@@ -1006,17 +1063,14 @@
   }
 
   function deleteGroup(gid) {
+    var g = findGroup(gid); if (!g) return;
     if (state.groups.length <= 1) { toast("至少保留一个分组"); return; }
-    var g = findGroup(gid);
-    var remaining = state.groups.filter(function (x) { return x.id !== gid; });
-    var moveTo = remaining[0];
-    confirmDialog("删除分组", "删除「" + (g ? g.name : "") + "」？其下任务将移到「" + moveTo.name + "」。", "删除", function () {
-      state.tasks.forEach(function (t) { if (t.groupId === gid) t.groupId = moveTo.id; });
-      state.groups = remaining;
-      if (state.ui.group === gid) state.ui.group = null;
-      saveAll();
-      render();
-    });
+    if (!groupIsEmpty(gid)) { toast("文件夹非空，请先清空其中的任务与子文件夹"); return; }
+    state.groups = state.groups.filter(function (x) { return x.id !== gid; });
+    if (state.ui.group === gid) state.ui.group = null;
+    if (state.ui.groupExpanded[gid]) delete state.ui.groupExpanded[gid];
+    saveAll();
+    render();
   }
 
   /* ============ 导入 / 导出 ============ */
@@ -1087,6 +1141,7 @@
           state.records = Array.isArray(data.records) ? data.records : [];
           state.tags = Array.isArray(data.tags) ? data.tags : [];
           state.records.forEach(function (r) { if (!Array.isArray(r.tagIds)) r.tagIds = []; });
+          normalizeGroups();
           normalizeTasks();
           render();
           toast("导入成功：分组 " + (pl.groups || state.groups.length) + " / 任务 " + (pl.tasks || state.tasks.length));
@@ -1348,6 +1403,7 @@
       state.records = Array.isArray(data.records) ? data.records : [];
       state.tags = Array.isArray(data.tags) ? data.tags : [];
       state.records.forEach(function (r) { if (!Array.isArray(r.tagIds)) r.tagIds = []; });
+      normalizeGroups();
       if (state.groups.length === 0) {
         state.groups.push({ id: uid("g"), name: "默认分组", order: 0 });
         saveAll();
