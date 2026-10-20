@@ -38,7 +38,7 @@ import (
 // pluginVersion 只是兜底；运行时以包内 manifest.json 的版本为准（见 resolveMetadata）。
 const (
 	pluginID      = "com.lwai.todo"
-	pluginVersion = "0.1.17"
+	pluginVersion = "0.1.19"
 )
 
 type plugin struct {
@@ -493,6 +493,8 @@ type TodoDoc struct {
 	Tasks   []TodoTask   `json:"tasks"`
 	Records []TodoRecord `json:"records"`
 	Tags    []TodoTag    `json:"tags"`
+	// 看板列收缩状态：colKey -> 是否已收起。仅 UI 偏好，存于 meta 表，不影响数据。
+	BoardCollapsed map[string]bool `json:"boardCollapsed,omitempty"`
 }
 
 // openDB 打开（必要时创建）SQLite 数据库并执行迁移。返回值 created 表示
@@ -674,6 +676,17 @@ func loadDoc() (TodoDoc, bool, error) {
 	}
 	if err := db.QueryRow(`SELECT CAST(value AS INTEGER) FROM meta WHERE key='version'`).Scan(&d.Version); err != nil {
 		d.Version = 1
+	}
+	// 看板列收缩偏好（存于 meta 表的 'ui' 键，JSON）。
+	var uiRaw sql.NullString
+	_ = db.QueryRow(`SELECT value FROM meta WHERE key='ui'`).Scan(&uiRaw)
+	if uiRaw.Valid && uiRaw.String != "" {
+		var uiPref struct {
+			BoardCollapsed map[string]bool `json:"boardCollapsed"`
+		}
+		if json.Unmarshal([]byte(uiRaw.String), &uiPref) == nil {
+			d.BoardCollapsed = uiPref.BoardCollapsed
+		}
 	}
 
 	gRows, err := db.Query(`SELECT id, name, ord, parent_id FROM groups ORDER BY ord, id`)
@@ -954,6 +967,19 @@ func saveDocToDB(d TodoDoc) (int, error) {
 		tx.Rollback()
 		return 0, err
 	}
+	// 看板列收缩偏好写入 meta 表（'ui' 键），与数据解耦，可独立更新。
+	if d.BoardCollapsed == nil {
+		d.BoardCollapsed = map[string]bool{}
+	}
+	if uiB, mErr := json.Marshal(map[string]any{"boardCollapsed": d.BoardCollapsed}); mErr == nil {
+		if _, mErr2 := tx.Exec(
+			`INSERT INTO meta(key, value) VALUES('ui', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+			string(uiB),
+		); mErr2 != nil {
+			tx.Rollback()
+			return 0, mErr2
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
@@ -978,12 +1004,17 @@ func todosLoad() (any, *dbxpluginsdk.PluginError) {
 	if err != nil {
 		return nil, failed(-32002, fmt.Errorf("读取待办数据失败：%w", err))
 	}
+	// 看板列收缩偏好：确保始终返回对象（而非 null），与保存链路对齐。
+	if d.BoardCollapsed == nil {
+		d.BoardCollapsed = map[string]bool{}
+	}
 	doc := map[string]any{
-		"version": d.Version,
-		"groups":  d.Groups,
-		"tasks":   d.Tasks,
-		"records": d.Records,
-		"tags":    d.Tags,
+		"version":        d.Version,
+		"groups":         d.Groups,
+		"tasks":          d.Tasks,
+		"records":        d.Records,
+		"tags":           d.Tags,
+		"boardCollapsed": d.BoardCollapsed,
 	}
 	// 首次运行（数据库刚创建）给前端一个空壳，让它去 seed 一个默认分组。
 	if created {

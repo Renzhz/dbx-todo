@@ -115,7 +115,7 @@
   var modalSubs = [];
   var statusTick = null;
 
-  function buildDoc() { return { version: 1, groups: state.groups, tasks: state.tasks, records: state.records, tags: state.tags }; }
+  function buildDoc() { return { version: 1, groups: state.groups, tasks: state.tasks, records: state.records, tags: state.tags, boardCollapsed: state.ui.boardCollapsed }; }
   function saveAll() {
     if (!Store) return Promise.resolve(false);
     return Store.save(buildDoc(), true).catch(function (e) { reportErr("保存", e); return false; });
@@ -900,9 +900,11 @@
     setVal("f-donenote", t ? (t.doneNote || "") : "");
     if (prefill && prefill.due) setVal("f-due", toLocalInput(prefill.due));
     if (prefill && prefill.group) setVal("f-group", prefill.group);
-    renderSubtaskEdits();
     var del = $("btn-delete-task"); if (del) del.hidden = !t;
     var m = $("task-modal"); if (m) m.hidden = false;
+    // 必须在弹框可见后再渲染子任务编辑器：弹框隐藏时 textarea 无布局，autoGrow 测到的 scrollHeight 为 0，
+    // 会导致长内容被压成一行裁掉；显示后再渲染即可正确自适应高度。
+    renderSubtaskEdits();
     setTimeout(function () { var e = $("f-title"); if (e) e.focus(); }, 30);
   }
 
@@ -1140,6 +1142,7 @@
           state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
           state.records = Array.isArray(data.records) ? data.records : [];
           state.tags = Array.isArray(data.tags) ? data.tags : [];
+          state.ui.boardCollapsed = (data.boardCollapsed && typeof data.boardCollapsed === "object") ? data.boardCollapsed : {};
           state.records.forEach(function (r) { if (!Array.isArray(r.tagIds)) r.tagIds = []; });
           normalizeGroups();
           normalizeTasks();
@@ -1293,6 +1296,7 @@
         var cid = bc.dataset.bccollapse;
         state.ui.boardCollapsed[cid] = !state.ui.boardCollapsed[cid];
         renderBoard();
+        saveAll();
         return;
       }
       var subToggle = t.dataset && t.dataset.bcsub ? t : (t.closest ? t.closest("[data-bcsub]") : null);
@@ -1402,6 +1406,7 @@
       state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
       state.records = Array.isArray(data.records) ? data.records : [];
       state.tags = Array.isArray(data.tags) ? data.tags : [];
+      state.ui.boardCollapsed = (data.boardCollapsed && typeof data.boardCollapsed === "object") ? data.boardCollapsed : {};
       state.records.forEach(function (r) { if (!Array.isArray(r.tagIds)) r.tagIds = []; });
       normalizeGroups();
       if (state.groups.length === 0) {
