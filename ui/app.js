@@ -107,7 +107,7 @@
     ui: {
       view: "list", search: "", status: "all", priority: "all", sort: "created", group: null,
       collapsed: {}, openTasks: {}, boardCollapsed: {}, boardOpen: {}, calYear: 0, calMonth: 0,
-      groupExpanded: {}, recordTagFilter: []
+      groupExpanded: {}, recordTagFilter: [], listPage: 1, recPage: 1, pageSize: 30
     }
   };
   var calByDay = {};   // 日历：dayKey -> { tasks:[...], records:[...] }（供「查看全部」弹框读取）
@@ -221,7 +221,7 @@
     var allItem = h("div", {
       class: "group-item" + (state.ui.group == null ? " active" : ""),
       dataset: { group: "__all__" },
-      onClick: function () { state.ui.group = null; render(); }
+      onClick: function () { state.ui.group = null; state.ui.listPage = 1; render(); }
     }, [
       h("span", { class: "group-chevron group-chevron-static" }, ""),
       h("span", { class: "group-name" }, "全部任务"),
@@ -245,6 +245,7 @@
         if (ev.target && ev.target.closest && ev.target.closest(".group-actions")) return;
         if (ev.target && ev.target.closest && ev.target.closest(".group-toggle")) return;
         state.ui.group = (state.ui.group === g.id) ? null : g.id;
+        state.ui.listPage = 1;
         render();
       }
     }, [
@@ -288,6 +289,7 @@
     });
     state.ui.recordTagFilter = state.ui.recordTagFilter.filter(function (x) { return x !== id; });
     saveAll();
+    state.ui.recPage = 1;
     render();
   }
 
@@ -295,6 +297,7 @@
     var arr = state.ui.recordTagFilter;
     var i = arr.indexOf(id);
     if (i >= 0) arr.splice(i, 1); else arr.push(id);
+    state.ui.recPage = 1;
     render();
   }
 
@@ -305,7 +308,7 @@
     root.appendChild(h("div", {
       class: "tag-item" + (state.ui.recordTagFilter.length === 0 ? " active" : ""),
       dataset: { tagfilter: "__all__" },
-      onClick: function () { state.ui.recordTagFilter = []; render(); }
+      onClick: function () { state.ui.recordTagFilter = []; state.ui.recPage = 1; render(); }
     }, [
       h("span", { class: "tag-dot", style: "background:#9aa0a6" }),
       h("span", { class: "tag-name" }, "全部"),
@@ -382,27 +385,28 @@
   function renderList() {
     var root = $("list-content"); if (!root) return;
     root.innerHTML = "";
-    var now = Date.now();
-
     if (state.tasks.length === 0) {
       root.appendChild(emptyState("🗒️", "还没有任何任务", "点击右上角「新建任务」创建你的第一个待办。", true));
       return;
     }
+    var now = Date.now();
     var list = filteredTasks();
     if (list.length === 0) {
       root.appendChild(emptyState("🔍", "没有匹配的任务", "试着调整搜索词、状态或优先级筛选。", false));
       return;
     }
-
-    if (state.ui.group) {
-      var sg = findGroup(state.ui.group);
-      if (sg) root.appendChild(renderListSection(sg, 0, now, list));
-    } else {
-      rootGroups().forEach(function (g) {
-        if (groupTotalCount(g.id) === 0) return; // 整棵子树无任务则跳过该根
-        root.appendChild(renderListSection(g, 0, now, list));
-      });
-    }
+    var size = state.ui.pageSize;
+    var totalPages = Math.max(1, Math.ceil(list.length / size));
+    if (state.ui.listPage > totalPages) state.ui.listPage = totalPages;
+    if (state.ui.listPage < 1) state.ui.listPage = 1;
+    var start = (state.ui.listPage - 1) * size;
+    list.slice(start, start + size).forEach(function (t) {
+      var g = findGroup(t.groupId);
+      root.appendChild(taskCard(t, now, g ? g.name : "（未分组）"));
+    });
+    root.appendChild(renderPager(list.length, state.ui.listPage, size,
+      function (p) { state.ui.listPage = p; renderList(); },
+      function (s) { state.ui.pageSize = s; state.ui.listPage = 1; renderList(); }));
   }
 
   function renderListSection(g, depth, now, list) {
@@ -421,7 +425,7 @@
     return section;
   }
 
-  function taskCard(t, now) {
+  function taskCard(t, now, groupName) {
     var st = taskStatus(t, now);
     var pr = t.priority || "medium";
     var prog = progressOf(t);
@@ -484,11 +488,10 @@
       meta,
       progress
     ]));
-    var card = h("div", { class: "task-card" + (t.done ? " done" : ""), dataset: { tid: t.id } }, [
-      h("div", rowProps, rowKids),
-      actions,
-      detail
-    ]);
+    var cardKids = [];
+    if (groupName) cardKids.push(h("div", { class: "task-group-tag" }, groupName));
+    cardKids.push(h("div", rowProps, rowKids), actions, detail);
+    var card = h("div", { class: "task-card" + (t.done ? " done" : ""), dataset: { tid: t.id } }, cardKids);
     return card;
   }
 
@@ -740,6 +743,28 @@
   }
 
   /* ============ 记录视图（碎片内容） ============ */
+  /* ============ 通用分页器 ============ */
+  var PAGE_SIZES = [20, 30, 50, 100];
+  function renderPager(total, page, size, onPage, onSize) {
+    var totalPages = Math.max(1, Math.ceil(total / size));
+    if (page > totalPages) page = totalPages;
+    if (page < 1) page = 1;
+    var bar = h("div", { class: "pager" });
+    bar.appendChild(h("span", { class: "pager-info" }, "共 " + total + " 条 · 第 " + page + " / " + totalPages + " 页"));
+
+    var prev = h("button", { type: "button", class: "pager-btn", disabled: page <= 1, onClick: function () { if (page > 1) onPage(page - 1); } }, "‹ 上一页");
+    var next = h("button", { type: "button", class: "pager-btn", disabled: page >= totalPages, onClick: function () { if (page < totalPages) onPage(page + 1); } }, "下一页 ›");
+    bar.appendChild(prev);
+    bar.appendChild(next);
+
+    var sel = h("select", { class: "pager-size", title: "每页条数", onChange: function (e) { onSize(parseInt(e.target.value, 10) || 30); } });
+    PAGE_SIZES.forEach(function (s) {
+      sel.appendChild(h("option", { value: s, selected: s === size }, "每页 " + s));
+    });
+    bar.appendChild(sel);
+    return bar;
+  }
+
   function renderRecords() {
     var root = $("records-content"); if (!root) return;
     root.innerHTML = "";
@@ -760,7 +785,12 @@
       if (da !== db) return da < db ? 1 : -1;          // 日期倒序（近的在上）
       return (a.updatedAt || "").localeCompare(b.updatedAt || "");
     });
-    sorted.forEach(function (r) {
+    var size = state.ui.pageSize;
+    var totalPages = Math.max(1, Math.ceil(sorted.length / size));
+    if (state.ui.recPage > totalPages) state.ui.recPage = totalPages;
+    if (state.ui.recPage < 1) state.ui.recPage = 1;
+    var start = (state.ui.recPage - 1) * size;
+    sorted.slice(start, start + size).forEach(function (r) {
       var tagChips = null;
       var ids = r.tagIds || [];
       if (ids.length > 0) {
@@ -783,6 +813,9 @@
         ])
       ]));
     });
+    root.appendChild(renderPager(sorted.length, state.ui.recPage, size,
+      function (p) { state.ui.recPage = p; renderRecords(); },
+      function (s) { state.ui.pageSize = s; state.ui.recPage = 1; renderRecords(); }));
   }
 
   function openRecordModal(id) {
@@ -1216,7 +1249,7 @@
     click("btn-view-board", function () { switchView("board"); });
     click("btn-view-record", function () { switchView("record"); });
     click("btn-add-record", function () { openRecordModal(null); });
-    on("search-input", "input", function (e) { state.ui.search = e.target.value; if (state.ui.view === "list") renderList(); });
+    on("search-input", "input", function (e) { state.ui.search = e.target.value; state.ui.listPage = 1; if (state.ui.view === "list") renderList(); });
     click("btn-add-task", function () { openTaskModal(null); });
     click("btn-add-group", addGroup);
     click("btn-add-group-mini", addGroup);
@@ -1257,10 +1290,11 @@
       var b = ev.target.closest(".chip"); if (!b) return;
       state.ui.status = b.dataset.status || "all";
       Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function (c) { c.classList.toggle("active", c === b); });
+      state.ui.listPage = 1;
       if (state.ui.view === "list") renderList();
     });
-    on("priority-filter", "change", function (e) { state.ui.priority = e.target.value; if (state.ui.view === "list") renderList(); });
-    on("sort-select", "change", function (e) { state.ui.sort = e.target.value; if (state.ui.view === "list") renderList(); });
+    on("priority-filter", "change", function (e) { state.ui.priority = e.target.value; state.ui.listPage = 1; if (state.ui.view === "list") renderList(); });
+    on("sort-select", "change", function (e) { state.ui.sort = e.target.value; state.ui.listPage = 1; if (state.ui.view === "list") renderList(); });
 
     // 列表内容委托
     var lc = $("list-content");

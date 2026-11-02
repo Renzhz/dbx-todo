@@ -391,8 +391,19 @@ button { font-family: inherit; }
 
 /* ===== 记录视图 ===== */
 .rec-toolbar { display: flex; align-items: center; padding: 14px 16px 6px; }
-.records-content { display: flex; flex-direction: column; gap: 10px; padding: 6px 16px 20px; }
+.records-content { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 16px 20px; }
 .rec-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+
+/* 任务卡片顶部所属分组标签（扁平分页模式下显示） */
+.task-group-tag { display: inline-block; font-size: 11px; line-height: 1; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border); margin-bottom: 8px; }
+
+/* 分页器 */
+.pager { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px 16px; border-top: 1px solid var(--border); margin-top: 4px; }
+.pager-info { font-size: 12px; color: var(--text-3); }
+.pager-btn { font-size: 12px; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
+.pager-btn:hover:not([disabled]) { background: var(--panel-2); }
+.pager-btn[disabled] { opacity: .45; cursor: not-allowed; }
+.pager-size { font-size: 12px; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
 .rec-head { display: flex; align-items: baseline; gap: 10px; }
 .rec-date { font-size: 12px; color: var(--text-3); flex: none; font-variant-numeric: tabular-nums; }
 .rec-title { font-size: 15px; font-weight: 600; color: var(--text); }

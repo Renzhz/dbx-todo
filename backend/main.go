@@ -38,7 +38,7 @@ import (
 // pluginVersion 只是兜底；运行时以包内 manifest.json 的版本为准（见 resolveMetadata）。
 const (
 	pluginID      = "com.lwai.todo"
-	pluginVersion = "0.1.19"
+	pluginVersion = "0.1.20"
 )
 
 type plugin struct {
